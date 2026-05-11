@@ -122,6 +122,12 @@ MIT License — آزاد برای استفاده شخصی
 
 اگه این پروژه برات مفید بود، با یه ⭐ حمایت کن — انگیزه ادامه دادنمه!
 
-[![Star on GitHub](https://img.shields.io/github/stars/FALKON-CODE/Telegram-Mirror?style=social)](https://github.com/FALKON-CODE/Telegram-Mirror/stargazers)
-
+<a href="https://star-history.com/#FALKON-CODE/Telegram-Mirror&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=FALKON-CODE/Telegram-Mirror&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=FALKON-CODE/Telegram-Mirror&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=FALKON-CODE/Telegram-Mirror&type=Date" />
+  </picture>
+  
+</a>
 </div>
