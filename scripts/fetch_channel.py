@@ -1,6 +1,7 @@
 import argparse
 import os
 import re
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -109,49 +110,61 @@ def fetch_channel(channel, count):
             resp = requests.get(url, headers=HEADERS, timeout=30)
             resp.raise_for_status()
         except Exception as e:
-            print(f"[!] Error: {e}")
+            print(f"[!] Error fetching URL: {e}")
             break
 
-        soup = BeautifulSoup(resp.text, "lxml")
+        try:
+            soup = BeautifulSoup(resp.text, "lxml")
+        except Exception as e:
+            print(f"[!] Error parsing HTML: {e}")
+            break
 
         if before is None:
-            title_el = soup.select_one(".tgme_channel_info_header_title")
-            if title_el:
-                channel_info["title"] = title_el.get_text(strip=True)
-            desc_el = soup.select_one(".tgme_channel_info_description")
-            if desc_el:
-                channel_info["description"] = desc_el.get_text(strip=True)
-            avatar_el = soup.select_one(".tgme_page_photo_image img, .tgme_channel_info_header_image img")
-            if avatar_el:
-                channel_info["avatar"] = avatar_el.get("src", "")
-            members_el = soup.select_one(".tgme_channel_info_counter .counter_value")
-            if members_el:
-                channel_info["members"] = members_el.get_text(strip=True)
+            try:
+                title_el = soup.select_one(".tgme_channel_info_header_title")
+                if title_el:
+                    channel_info["title"] = title_el.get_text(strip=True)
+                desc_el = soup.select_one(".tgme_channel_info_description")
+                if desc_el:
+                    channel_info["description"] = desc_el.get_text(strip=True)
+                avatar_el = soup.select_one(".tgme_page_photo_image img, .tgme_channel_info_header_image img")
+                if avatar_el:
+                    channel_info["avatar"] = avatar_el.get("src", "")
+                members_el = soup.select_one(".tgme_channel_info_counter .counter_value")
+                if members_el:
+                    channel_info["members"] = members_el.get_text(strip=True)
+                print(f"[+] Channel: {channel_info['title']} ({channel_info['members']} members)")
+            except Exception as e:
+                print(f"[!] Error parsing channel info: {e}")
 
-        bubbles = soup.select(".tgme_widget_message_wrap")
-        if not bubbles:
-            print("[!] No messages found.")
+        try:
+            bubbles = soup.select(".tgme_widget_message_wrap")
+            if not bubbles:
+                print("[!] No messages found.")
+                break
+
+            page_messages = []
+            for b in bubbles:
+                inner = b.select_one(".tgme_widget_message")
+                if inner:
+                    page_messages.append(parse_message(inner))
+
+            if not page_messages:
+                break
+
+            messages = page_messages + messages
+            ids = [int(m["id"].split("/")[-1]) for m in page_messages if m["id"]]
+            if not ids:
+                break
+            before = min(ids)
+
+            if len(messages) >= count:
+                break
+
+            time.sleep(0.8)
+        except Exception as e:
+            print(f"[!] Error processing messages: {e}")
             break
-
-        page_messages = []
-        for b in bubbles:
-            inner = b.select_one(".tgme_widget_message")
-            if inner:
-                page_messages.append(parse_message(inner))
-
-        if not page_messages:
-            break
-
-        messages = page_messages + messages
-        ids = [int(m["id"].split("/")[-1]) for m in page_messages if m["id"]]
-        if not ids:
-            break
-        before = min(ids)
-
-        if len(messages) >= count:
-            break
-
-        time.sleep(0.8)
 
     messages = messages[-count:]
     print(f"[+] Got {len(messages)} messages")
@@ -213,7 +226,6 @@ def render_markdown(messages, channel_info, channel, fetch_time):
 
         # Text
         if m.get("text"):
-            # escape special markdown chars minimally
             text = m["text"]
             lines.append(f"{text}\n\n")
 
@@ -235,34 +247,54 @@ def render_markdown(messages, channel_info, channel, fetch_time):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--channel", required=True)
-    parser.add_argument("--count", type=int, default=100)
-    args = parser.parse_args()
+    try:
+        parser = argparse.ArgumentParser(description="Fetch Telegram channel messages")
+        parser.add_argument("--channel", required=True, help="Channel username (without @)")
+        parser.add_argument("--count", type=int, default=100, help="Number of messages to fetch")
+        args = parser.parse_args()
 
-    channel = args.channel.lstrip("@").strip()
-    count = max(10, min(args.count, 200))
+        channel = args.channel.lstrip("@").strip()
+        if not channel:
+            print("[!] Error: Channel name is empty")
+            sys.exit(1)
 
-    messages, channel_info = fetch_channel(channel, count)
+        count = max(10, min(args.count, 200))
+        print(f"[*] Parameters: channel=@{channel}, count={count}")
 
-    if not messages:
-        print("[!] No messages.")
-        return
+        messages, channel_info = fetch_channel(channel, count)
 
-    now = datetime.utcnow()
-    fetch_time = now.strftime("%Y-%m-%d %H:%M UTC")
-    file_date = now.strftime("%Y-%m-%d_%H-%M")
+        if not messages:
+            print("[!] No messages fetched.")
+            sys.exit(1)
 
-    md = render_markdown(messages, channel_info, channel, fetch_time)
+        now = datetime.utcnow()
+        fetch_time = now.strftime("%Y-%m-%d %H:%M UTC")
+        file_date = now.strftime("%Y-%m-%d_%H-%M")
 
-    out_dir = Path("channels")
-    out_dir.mkdir(exist_ok=True)
+        md = render_markdown(messages, channel_info, channel, fetch_time)
 
-    filename = f"{channel}_{file_date}.md"
-    out_file = out_dir / filename
-    out_file.write_text(md, encoding="utf-8")
+        out_dir = Path("channels")
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            print(f"[+] Created directory: {out_dir}")
+        except Exception as e:
+            print(f"[!] Error creating directory: {e}")
+            sys.exit(1)
 
-    print(f"[✓] Saved: {out_file}")
+        filename = f"{channel}_{file_date}.md"
+        out_file = out_dir / filename
+        
+        try:
+            out_file.write_text(md, encoding="utf-8")
+            file_size = out_file.stat().st_size
+            print(f"[✓] Saved: {out_file} ({file_size} bytes)")
+        except Exception as e:
+            print(f"[!] Error writing file: {e}")
+            sys.exit(1)
+
+    except Exception as e:
+        print(f"[!] Unexpected error: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
